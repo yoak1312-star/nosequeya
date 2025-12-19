@@ -68,7 +68,7 @@ function buildButtons() {
         }
         row.addComponents(
             new ButtonBuilder()
-                .setCustomId(`gen_${s}`)
+                .setCustomId(`gen_\${s}`)
                 .setLabel(s)
                 .setStyle(stock > 0 ? ButtonStyle.Success : ButtonStyle.Secondary)
                 .setDisabled(stock === 0)
@@ -125,44 +125,34 @@ client.on("interactionCreate", async interaction => {
     try {
         // ===== REFRESH =====
         if (interaction.customId === "refresh_panel") {
-            // deferUpdate es perfecto aquí porque solo se edita el mensaje original
             if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
             await panelMessage.edit({ embeds: [buildEmbed()], components: buildButtons() });
             return;
         }
 
-        // ===== VERIFY & GENERATE (Combinamos la lógica de verificación) =====
+        // ===== VERIFY & GENERATE =====
         if (interaction.customId === "verify_access" || interaction.customId.startsWith("gen_")) {
-            // Deferimos la respuesta inmediatamente para evitar el timeout de 3s
             if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
 
             const member = await interaction.guild.members.fetch(interaction.user.id);
             let hasRequiredStatus = false;
-            let statusText = null;
 
-            // Intentamos obtener la presencia con un pequeño reintento
             try {
-                // A veces la presencia no está en el primer fetch
-                await member.fetch(true); // Forzar un refresco de los datos del miembro
+                await member.fetch(true);
                 const status = member.presence?.activities.find(a => a.type === ActivityType.Custom);
-                statusText = status?.state;
+                const statusText = status?.state;
                 hasRequiredStatus = statusText && statusText.includes(VERIFY_TEXT);
             } catch (presenceError) {
                 console.warn(`No se pudo obtener la presencia de ${interaction.user.tag}:`, presenceError.message);
-                // Si no podemos obtener la presencia, asumimos que no la tiene
             }
 
             // Lógica para el botón de verificar
             if (interaction.customId === "verify_access") {
                 if (hasRequiredStatus) {
-                    if (!member.roles.cache.has(ACCESS_ROLE_ID)) {
-                        await member.roles.add(ACCESS_ROLE_ID);
-                    }
+                    if (!member.roles.cache.has(ACCESS_ROLE_ID)) await member.roles.add(ACCESS_ROLE_ID);
                     return interaction.editReply("🎉 Acceso otorgado correctamente.");
                 } else {
-                    return interaction.editReply(
-                        `❌ Tu estado no contiene el texto requerido.\nNecesitas tener: \`${VERIFY_TEXT}\``
-                    );
+                    return interaction.editReply(`❌ Tu estado no contiene el texto requerido.\nNecesitas tener: \`${VERIFY_TEXT}\``);
                 }
             }
 
@@ -171,25 +161,19 @@ client.on("interactionCreate", async interaction => {
                 const userId = interaction.user.id;
                 const now = Date.now();
 
-                // 1. Verificar cooldown
                 if (cooldowns.has(userId) && cooldowns.get(userId) > now) {
                     const t = Math.ceil((cooldowns.get(userId) - now) / 1000);
                     return interaction.editReply(`⏳ Esperá ${t}s antes de generar otra cuenta.`);
                 }
 
-                // 2. Verificar estado y rol (la lógica principal)
                 if (!hasRequiredStatus) {
-                    // Si no tiene el estado, quitamos el rol si lo tiene
                     if (member.roles.cache.has(ACCESS_ROLE_ID)) {
                         await member.roles.remove(ACCESS_ROLE_ID);
-                        console.log(`Rol quitado a ${interaction.user.tag} por no tener el estado.`);
+                        console.log(`Rol quitado a \${interaction.user.tag} por no tener el estado.`);
                     }
-                    return interaction.editReply(
-                        `❌ Tenés que tener este texto en tu estado para generar:\n\`${VERIFY_TEXT}\``
-                    );
+                    return interaction.editReply(`❌ Tenés que tener este texto en tu estado para generar:\n\`${VERIFY_TEXT}\``);
                 }
 
-                // 3. Si todo está bien, generar la cuenta
                 const service = interaction.customId.replace("gen_", "");
                 const file = path.join(ACCOUNTS_DIR, `${service}.txt`);
                 
@@ -215,8 +199,7 @@ client.on("interactionCreate", async interaction => {
                     await panelMessage.edit({ embeds: [buildEmbed()], components: buildButtons() });
 
                 } catch (dmError) {
-                    console.error(`Error al enviar DM a ${interaction.user.tag}:`, dmError);
-                    // Importante: si falla el DM, hay que devolver la cuenta al stock
+                    console.error(`Error al enviar DM a \${interaction.user.tag}:`, dmError);
                     const linesToRestore = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
                     linesToRestore.push(account);
                     fs.writeFileSync(file, linesToRestore.join("\n"));
@@ -226,5 +209,14 @@ client.on("interactionCreate", async interaction => {
         }
     } catch (err) {
         console.error("❌ ERROR GENERAL EN INTERACTION:", err);
-        // Si el error ocurre antes de deferReply, no podemos responder.
-        // Si ocurre después
+        if (interaction.replied || interaction.deferred) {
+            await interaction.editReply({ content: "❌ Ocurrió un error inesperado. Inténtalo de nuevo.", ephemeral: true }).catch(() => {});
+        }
+    }
+});
+
+// ================= START =================
+const TOKEN = process.env.TOKEN;
+if (!TOKEN) {
+    console.error("❌ TOKEN no definido en variables de entorno");
+    process.exit(1);
