@@ -1,0 +1,258 @@
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ActivityType
+} = require("discord.js");
+const fs = require("fs");
+const path = require("path");
+const config = require("./config.json");
+
+
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.DirectMessages
+  ],
+  partials: [Partials.Channel]
+});
+
+// ================= CONFIG =================
+const PANEL_CHANNEL_ID = config.panelChannelId;
+const LOG_CHANNEL_ID = config.logChannelId;
+const ACCESS_ROLE_ID = config.accessRoleId;
+const VERIFY_TEXT = config.verifyText;
+const COOLDOWN_TIME = (config.cooldownSeconds || 10) * 1000;
+const ACCOUNTS_DIR = path.join(__dirname, "accounts");
+
+// ================= DATA =================
+const cooldowns = new Map();
+let panelMessage = null;
+
+// ================= UTILS =================
+function getStock(service) {
+  const file = path.join(ACCOUNTS_DIR, `${service}.txt`);
+  if (!fs.existsSync(file)) return 0;
+  return fs.readFileSync(file, "utf8").split("\n").filter(Boolean).length;
+}
+
+function services() {
+  if (!fs.existsSync(ACCOUNTS_DIR)) return [];
+  return fs.readdirSync(ACCOUNTS_DIR)
+    .filter(f => f.endsWith(".txt"))
+    .map(f => f.replace(".txt", ""));
+}
+
+// ================= PANEL =================
+function buildEmbed() {
+  const embed = new EmbedBuilder()
+    .setTitle("🎁 OPS GEN PANEL")
+    .setColor(0x00ff99)
+    .setDescription("Seleccioná un servicio para generar cuenta");
+
+  for (const s of services()) {
+    const stock = getStock(s);
+    embed.addFields({
+      name: `${stock > 0 ? "🟢" : "❌"} ${s}`,
+      value: `Stock: **${stock}**`,
+      inline: true
+    });
+  }
+
+  return embed;
+}
+
+function buildButtons() {
+  const rows = [];
+  let row = new ActionRowBuilder();
+
+  for (const s of services()) {
+    const stock = getStock(s);
+
+    if (row.components.length === 5) {
+      rows.push(row);
+      row = new ActionRowBuilder();
+    }
+
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`gen_${s}`)
+        .setLabel(s)
+        .setStyle(stock > 0 ? ButtonStyle.Success : ButtonStyle.Secondary)
+        .setDisabled(stock === 0)
+    );
+  }
+
+  if (row.components.length) rows.push(row);
+
+  rows.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("verify_access")
+        .setLabel("✅ Verificar acceso")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId("refresh_panel")
+        .setLabel("🔄 Actualizar")
+        .setStyle(ButtonStyle.Primary)
+    )
+  );
+
+  return rows;
+}
+
+async function createOrLoadPanel() {
+  const channel = await client.channels.fetch(PANEL_CHANNEL_ID);
+  const messages = await channel.messages.fetch({ limit: 10 });
+  panelMessage = messages.find(m => m.author.id === client.user.id);
+
+  if (!panelMessage) {
+    panelMessage = await channel.send({
+      embeds: [buildEmbed()],
+      components: buildButtons()
+    });
+  } else {
+    await panelMessage.edit({
+      embeds: [buildEmbed()],
+      components: buildButtons()
+    });
+  }
+}
+
+// ================= EVENTS =================
+client.once("ready", async () => {
+  console.clear();
+  console.log(`
+ ██████╗ ██████╗ ███████╗
+██╔═══██╗██╔══██╗██╔════╝
+██║   ██║██████╔╝███████╗
+██║   ██║██╔═══╝ ╚════██║
+╚██████╔╝██║     ███████║
+ ╚═════╝ ╚═╝     ╚══════╝
+
+ OPS GEN INICIADO
+`);
+  await createOrLoadPanel();
+});
+
+// ================= INTERACTIONS =================
+client.on("interactionCreate", async interaction => {
+  if (!interaction.isButton()) return;
+
+  try {
+    // ===== REFRESH =====
+    if (interaction.customId === "refresh_panel") {
+      if (!interaction.deferred && !interaction.replied)
+        await interaction.deferUpdate();
+
+      await panelMessage.edit({
+        embeds: [buildEmbed()],
+        components: buildButtons()
+      });
+      return;
+    }
+
+    // ===== VERIFY =====
+    if (interaction.customId === "verify_access") {
+      if (!interaction.deferred && !interaction.replied)
+        await interaction.deferReply({ ephemeral: true });
+
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+
+      const status = member.presence?.activities.find(
+        a => a.type === ActivityType.Custom
+      );
+
+      if (!status || !status.state)
+        return interaction.editReply("❌ No tenés estado personalizado.");
+
+      if (!status.state.includes(VERIFY_TEXT))
+        return interaction.editReply(
+          `❌ Tu estado no contiene:\n\`${VERIFY_TEXT}\``
+        );
+
+      if (!member.roles.cache.has(ACCESS_ROLE_ID)) {
+        await member.roles.add(ACCESS_ROLE_ID);
+      }
+
+      return interaction.editReply("🎉 Acceso otorgado correctamente.");
+    }
+
+    // ===== GENERAR =====
+    if (interaction.customId.startsWith("gen_")) {
+      if (!interaction.deferred && !interaction.replied)
+        await interaction.deferReply({ ephemeral: true });
+
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+
+      const status = member.presence?.activities.find(
+        a => a.type === ActivityType.Custom
+      );
+
+      // ❌ NO TIENE ESTADO → SACAR ROL
+      if (!status || !status.state || !status.state.includes(VERIFY_TEXT)) {
+        if (member.roles.cache.has(ACCESS_ROLE_ID)) {
+          await member.roles.remove(ACCESS_ROLE_ID);
+        }
+        return interaction.editReply(
+          `❌ Tenés que tener este texto en tu estado para generar:\n\`${VERIFY_TEXT}\``
+        );
+      }
+
+      const userId = interaction.user.id;
+      const now = Date.now();
+
+      if (cooldowns.has(userId) && cooldowns.get(userId) > now) {
+        const t = Math.ceil((cooldowns.get(userId) - now) / 1000);
+        return interaction.editReply(`⏳ Esperá ${t}s`);
+      }
+
+      const service = interaction.customId.replace("gen_", "");
+      const file = path.join(ACCOUNTS_DIR, `${service}.txt`);
+
+      if (!fs.existsSync(file))
+        return interaction.editReply("❌ Sin stock.");
+
+      const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+      if (!lines.length)
+        return interaction.editReply("❌ Sin stock.");
+
+      const account = lines.shift();
+      fs.writeFileSync(file, lines.join("\n"));
+
+      await interaction.user.send(`🎁 **${service}**\n\`${account}\``);
+      cooldowns.set(userId, now + COOLDOWN_TIME);
+
+      await interaction.editReply("✅ Cuenta enviada por MD.");
+
+      const log = await client.channels.fetch(LOG_CHANNEL_ID);
+      log.send(`🎁 ${interaction.user.tag} generó **${service}**`);
+
+      await panelMessage.edit({
+        embeds: [buildEmbed()],
+        components: buildButtons()
+      });
+    }
+  } catch (err) {
+    console.error("❌ ERROR INTERACTION:", err);
+  }
+});
+
+// ================= START =================
+const TOKEN = process.env.TOKEN;
+
+if (!TOKEN) {
+  console.error("❌ TOKEN no definido en variables de entorno");
+  process.exit(1);
+}
+
+client.login(TOKEN);

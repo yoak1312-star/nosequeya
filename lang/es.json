@@ -1,0 +1,8 @@
+{
+  "no_permission": "❌ No tenés permisos para ejecutar este comando.",
+  "cooldown": "⏳ Debes esperar 15 minutos antes de volver a generar una cuenta.",
+  "no_service": "⚠️ Debes indicar un servicio.",
+  "no_stock": "📦 No hay stock disponible.",
+  "account_sent": "✅ La cuenta fue enviada por mensaje privado.",
+  "service_not_found": "❌ El servicio solicitado no existe."
+}
