@@ -1,29 +1,18 @@
-const {
-  Client,
-  GatewayIntentBits,
-  Partials,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ActivityType
-} = require("discord.js");
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ActivityType } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
 const config = require("./config.json");
 
-
-
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildPresences,
-    GatewayIntentBits.DirectMessages
-  ],
-  partials: [Partials.Channel]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildPresences,
+        GatewayIntentBits.DirectMessages
+    ],
+    partials: [Partials.Channel]
 });
 
 // ================= CONFIG =================
@@ -40,219 +29,202 @@ let panelMessage = null;
 
 // ================= UTILS =================
 function getStock(service) {
-  const file = path.join(ACCOUNTS_DIR, `${service}.txt`);
-  if (!fs.existsSync(file)) return 0;
-  return fs.readFileSync(file, "utf8").split("\n").filter(Boolean).length;
+    const file = path.join(ACCOUNTS_DIR, `${service}.txt`);
+    if (!fs.existsSync(file)) return 0;
+    return fs.readFileSync(file, "utf8").split("\n").filter(Boolean).length;
 }
 
 function services() {
-  if (!fs.existsSync(ACCOUNTS_DIR)) return [];
-  return fs.readdirSync(ACCOUNTS_DIR)
-    .filter(f => f.endsWith(".txt"))
-    .map(f => f.replace(".txt", ""));
+    if (!fs.existsSync(ACCOUNTS_DIR)) return [];
+    return fs.readdirSync(ACCOUNTS_DIR)
+        .filter(f => f.endsWith(".txt"))
+        .map(f => f.replace(".txt", ""));
 }
 
 // ================= PANEL =================
 function buildEmbed() {
-  const embed = new EmbedBuilder()
-    .setTitle("🎁 OPS GEN PANEL")
-    .setColor(0x00ff99)
-    .setDescription("Seleccioná un servicio para generar cuenta");
+    const embed = new EmbedBuilder()
+        .setTitle("🎁 OPS GEN PANEL")
+        .setColor(0x00ff99)
+        .setDescription("Seleccioná un servicio para generar cuenta");
 
-  for (const s of services()) {
-    const stock = getStock(s);
-    embed.addFields({
-      name: `${stock > 0 ? "🟢" : "❌"} ${s}`,
-      value: `Stock: **${stock}**`,
-      inline: true
-    });
-  }
+    for (const s of services()) {
+        const stock = getStock(s);
+        embed.addFields({ name: `${stock > 0 ? "🟢" : "❌"} ${s}`, value: `Stock: **${stock}**`, inline: true });
+    }
 
-  return embed;
+    return embed;
 }
 
 function buildButtons() {
-  const rows = [];
-  let row = new ActionRowBuilder();
+    const rows = [];
+    let row = new ActionRowBuilder();
 
-  for (const s of services()) {
-    const stock = getStock(s);
-
-    if (row.components.length === 5) {
-      rows.push(row);
-      row = new ActionRowBuilder();
+    for (const s of services()) {
+        const stock = getStock(s);
+        if (row.components.length === 5) {
+            rows.push(row);
+            row = new ActionRowBuilder();
+        }
+        row.addComponents(
+            new ButtonBuilder()
+                .setCustomId(`gen_${s}`)
+                .setLabel(s)
+                .setStyle(stock > 0 ? ButtonStyle.Success : ButtonStyle.Secondary)
+                .setDisabled(stock === 0)
+        );
     }
 
-    row.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`gen_${s}`)
-        .setLabel(s)
-        .setStyle(stock > 0 ? ButtonStyle.Success : ButtonStyle.Secondary)
-        .setDisabled(stock === 0)
+    if (row.components.length) rows.push(row);
+
+    rows.push(
+        new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId("verify_access")
+                .setLabel("✅ Verificar acceso")
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId("refresh_panel")
+                .setLabel("🔄 Actualizar")
+                .setStyle(ButtonStyle.Primary)
+        )
     );
-  }
 
-  if (row.components.length) rows.push(row);
-
-  rows.push(
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("verify_access")
-        .setLabel("✅ Verificar acceso")
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId("refresh_panel")
-        .setLabel("🔄 Actualizar")
-        .setStyle(ButtonStyle.Primary)
-    )
-  );
-
-  return rows;
+    return rows;
 }
 
 async function createOrLoadPanel() {
-  const channel = await client.channels.fetch(PANEL_CHANNEL_ID);
-  const messages = await channel.messages.fetch({ limit: 10 });
-  panelMessage = messages.find(m => m.author.id === client.user.id);
+    const channel = await client.channels.fetch(PANEL_CHANNEL_ID);
+    const messages = await channel.messages.fetch({ limit: 10 });
+    panelMessage = messages.find(m => m.author.id === client.user.id);
 
-  if (!panelMessage) {
-    panelMessage = await channel.send({
-      embeds: [buildEmbed()],
-      components: buildButtons()
-    });
-  } else {
-    await panelMessage.edit({
-      embeds: [buildEmbed()],
-      components: buildButtons()
-    });
-  }
+    if (!panelMessage) {
+        panelMessage = await channel.send({ embeds: [buildEmbed()], components: buildButtons() });
+    } else {
+        await panelMessage.edit({ embeds: [buildEmbed()], components: buildButtons() });
+    }
 }
 
 // ================= EVENTS =================
 client.once("ready", async () => {
-  console.clear();
-  console.log(`
- ██████╗ ██████╗ ███████╗
-██╔═══██╗██╔══██╗██╔════╝
-██║   ██║██████╔╝███████╗
-██║   ██║██╔═══╝ ╚════██║
-╚██████╔╝██║     ███████║
- ╚═════╝ ╚═╝     ╚══════╝
-
- OPS GEN INICIADO
-`);
-  await createOrLoadPanel();
+    console.clear();
+    console.log(` ██████╗ ██████╗ ███████╗
+ ██╔═══██╗██╔══██╗██╔════╝
+ ██║ ██║██████╔╝███████╗
+ ██║ ██║██╔═══╝ ╚════██║
+ ╚██████╔╝██║     ███████║
+  ╚═════╝ ╚═╝     ╚══════╝
+     OPS GEN INICIADO`);
+    await createOrLoadPanel();
 });
 
 // ================= INTERACTIONS =================
 client.on("interactionCreate", async interaction => {
-  if (!interaction.isButton()) return;
+    if (!interaction.isButton()) return;
 
-  try {
-    // ===== REFRESH =====
-    if (interaction.customId === "refresh_panel") {
-      if (!interaction.deferred && !interaction.replied)
-        await interaction.deferUpdate();
-
-      await panelMessage.edit({
-        embeds: [buildEmbed()],
-        components: buildButtons()
-      });
-      return;
-    }
-
-    // ===== VERIFY =====
-    if (interaction.customId === "verify_access") {
-      if (!interaction.deferred && !interaction.replied)
-        await interaction.deferReply({ ephemeral: true });
-
-      const member = await interaction.guild.members.fetch(interaction.user.id);
-
-      const status = member.presence?.activities.find(
-        a => a.type === ActivityType.Custom
-      );
-
-      if (!status || !status.state)
-        return interaction.editReply("❌ No tenés estado personalizado.");
-
-      if (!status.state.includes(VERIFY_TEXT))
-        return interaction.editReply(
-          `❌ Tu estado no contiene:\n\`${VERIFY_TEXT}\``
-        );
-
-      if (!member.roles.cache.has(ACCESS_ROLE_ID)) {
-        await member.roles.add(ACCESS_ROLE_ID);
-      }
-
-      return interaction.editReply("🎉 Acceso otorgado correctamente.");
-    }
-
-    // ===== GENERAR =====
-    if (interaction.customId.startsWith("gen_")) {
-      if (!interaction.deferred && !interaction.replied)
-        await interaction.deferReply({ ephemeral: true });
-
-      const member = await interaction.guild.members.fetch(interaction.user.id);
-
-      const status = member.presence?.activities.find(
-        a => a.type === ActivityType.Custom
-      );
-
-      // ❌ NO TIENE ESTADO → SACAR ROL
-      if (!status || !status.state || !status.state.includes(VERIFY_TEXT)) {
-        if (member.roles.cache.has(ACCESS_ROLE_ID)) {
-          await member.roles.remove(ACCESS_ROLE_ID);
+    try {
+        // ===== REFRESH =====
+        if (interaction.customId === "refresh_panel") {
+            // deferUpdate es perfecto aquí porque solo se edita el mensaje original
+            if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+            await panelMessage.edit({ embeds: [buildEmbed()], components: buildButtons() });
+            return;
         }
-        return interaction.editReply(
-          `❌ Tenés que tener este texto en tu estado para generar:\n\`${VERIFY_TEXT}\``
-        );
-      }
 
-      const userId = interaction.user.id;
-      const now = Date.now();
+        // ===== VERIFY & GENERATE (Combinamos la lógica de verificación) =====
+        if (interaction.customId === "verify_access" || interaction.customId.startsWith("gen_")) {
+            // Deferimos la respuesta inmediatamente para evitar el timeout de 3s
+            if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ ephemeral: true });
 
-      if (cooldowns.has(userId) && cooldowns.get(userId) > now) {
-        const t = Math.ceil((cooldowns.get(userId) - now) / 1000);
-        return interaction.editReply(`⏳ Esperá ${t}s`);
-      }
+            const member = await interaction.guild.members.fetch(interaction.user.id);
+            let hasRequiredStatus = false;
+            let statusText = null;
 
-      const service = interaction.customId.replace("gen_", "");
-      const file = path.join(ACCOUNTS_DIR, `${service}.txt`);
+            // Intentamos obtener la presencia con un pequeño reintento
+            try {
+                // A veces la presencia no está en el primer fetch
+                await member.fetch(true); // Forzar un refresco de los datos del miembro
+                const status = member.presence?.activities.find(a => a.type === ActivityType.Custom);
+                statusText = status?.state;
+                hasRequiredStatus = statusText && statusText.includes(VERIFY_TEXT);
+            } catch (presenceError) {
+                console.warn(`No se pudo obtener la presencia de ${interaction.user.tag}:`, presenceError.message);
+                // Si no podemos obtener la presencia, asumimos que no la tiene
+            }
 
-      if (!fs.existsSync(file))
-        return interaction.editReply("❌ Sin stock.");
+            // Lógica para el botón de verificar
+            if (interaction.customId === "verify_access") {
+                if (hasRequiredStatus) {
+                    if (!member.roles.cache.has(ACCESS_ROLE_ID)) {
+                        await member.roles.add(ACCESS_ROLE_ID);
+                    }
+                    return interaction.editReply("🎉 Acceso otorgado correctamente.");
+                } else {
+                    return interaction.editReply(
+                        `❌ Tu estado no contiene el texto requerido.\nNecesitas tener: \`${VERIFY_TEXT}\``
+                    );
+                }
+            }
 
-      const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
-      if (!lines.length)
-        return interaction.editReply("❌ Sin stock.");
+            // Lógica para el botón de generar
+            if (interaction.customId.startsWith("gen_")) {
+                const userId = interaction.user.id;
+                const now = Date.now();
 
-      const account = lines.shift();
-      fs.writeFileSync(file, lines.join("\n"));
+                // 1. Verificar cooldown
+                if (cooldowns.has(userId) && cooldowns.get(userId) > now) {
+                    const t = Math.ceil((cooldowns.get(userId) - now) / 1000);
+                    return interaction.editReply(`⏳ Esperá ${t}s antes de generar otra cuenta.`);
+                }
 
-      await interaction.user.send(`🎁 **${service}**\n\`${account}\``);
-      cooldowns.set(userId, now + COOLDOWN_TIME);
+                // 2. Verificar estado y rol (la lógica principal)
+                if (!hasRequiredStatus) {
+                    // Si no tiene el estado, quitamos el rol si lo tiene
+                    if (member.roles.cache.has(ACCESS_ROLE_ID)) {
+                        await member.roles.remove(ACCESS_ROLE_ID);
+                        console.log(`Rol quitado a ${interaction.user.tag} por no tener el estado.`);
+                    }
+                    return interaction.editReply(
+                        `❌ Tenés que tener este texto en tu estado para generar:\n\`${VERIFY_TEXT}\``
+                    );
+                }
 
-      await interaction.editReply("✅ Cuenta enviada por MD.");
+                // 3. Si todo está bien, generar la cuenta
+                const service = interaction.customId.replace("gen_", "");
+                const file = path.join(ACCOUNTS_DIR, `${service}.txt`);
+                
+                if (!fs.existsSync(file)) return interaction.editReply("❌ El servicio no existe.");
+                
+                const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+                if (!lines.length) return interaction.editReply("❌ Sin stock para este servicio.");
 
-      const log = await client.channels.fetch(LOG_CHANNEL_ID);
-      log.send(`🎁 ${interaction.user.tag} generó **${service}**`);
+                const account = lines.shift();
+                fs.writeFileSync(file, lines.join("\n"));
 
-      await panelMessage.edit({
-        embeds: [buildEmbed()],
-        components: buildButtons()
-      });
-    }
-  } catch (err) {
-    console.error("❌ ERROR INTERACTION:", err);
-  }
-});
+                try {
+                    await interaction.user.send(`🎁 **${service}**\n\`${account}\``);
+                    cooldowns.set(userId, now + COOLDOWN_TIME);
+                    await interaction.editReply("✅ Cuenta enviada por MD.");
 
-// ================= START =================
-const TOKEN = process.env.TOKEN;
+                    const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+                    if (logChannel) {
+                        logChannel.send(`🎁 ${interaction.user.tag} generó **${service}**`);
+                    }
 
-if (!TOKEN) {
-  console.error("❌ TOKEN no definido en variables de entorno");
-  process.exit(1);
-}
+                    // Actualizar el panel para reflejar el nuevo stock
+                    await panelMessage.edit({ embeds: [buildEmbed()], components: buildButtons() });
 
-client.login(TOKEN);
+                } catch (dmError) {
+                    console.error(`Error al enviar DM a ${interaction.user.tag}:`, dmError);
+                    // Importante: si falla el DM, hay que devolver la cuenta al stock
+                    const linesToRestore = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+                    linesToRestore.push(account);
+                    fs.writeFileSync(file, linesToRestore.join("\n"));
+                    await interaction.editReply("❌ No pude enviarte la cuenta por MD. Actívalos y vuelve a intentar.");
+                }
+            }
+        }
+    } catch (err) {
+        console.error("❌ ERROR GENERAL EN INTERACTION:", err);
+        // Si el error ocurre antes de deferReply, no podemos responder.
+        // Si ocurre después
