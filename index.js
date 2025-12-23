@@ -19,7 +19,7 @@ const PANEL_CHANNEL_ID = config.panelChannelId;
 const LOG_CHANNEL_ID = config.logChannelId;
 const ACCESS_ROLE_ID = config.accessRoleId;
 const VERIFY_TEXT = config.verifyText;
-const COOLDOWN_TIME = (config.cooldownSeconds || 120) * 1000;
+const COOLDOWN_TIME = (config.cooldownSeconds || 240) * 1000;
 const ACCOUNTS_DIR = path.join(__dirname, "accounts");
 
 const cooldowns = new Map();
@@ -162,5 +162,6 @@ if (!TOKEN) {
     process.exit(1);
 }
 client.login(TOKEN);
+
 
 
